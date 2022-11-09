@@ -56,7 +56,7 @@ if len(runs) == 1:
         shell(f"mv {output_dir}/{runs[0]}.fastq.gz {output_dir}/{snakemake.wildcards.sample}.fastq.gz")
 
     shell(f"touch {snakemake.output[0]}")
-elif len(runs) > 1:
+elif len(runs) > 1: # TODO: Handle single end runs
     run_kingfisher(snakemake.input.sample, f"{snakemake.config['tmp_dir']}/{snakemake.wildcards.sample}", snakemake.threads, snakemake.log[0])
     shell(f"cat {snakemake.config['tmp_dir']}/{snakemake.wildcards.sample}/*_1.fastq.gz > {output_dir}/{snakemake.wildcards.sample}_1.fastq.gz")
     shell(f"cat {snakemake.config['tmp_dir']}/{snakemake.wildcards.sample}/*_2.fastq.gz > {output_dir}/{snakemake.wildcards.sample}_2.fastq.gz")
