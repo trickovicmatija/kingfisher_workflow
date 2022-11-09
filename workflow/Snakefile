@@ -1,4 +1,65 @@
-# Main entrypoint of the workflow. 
-# Please follow the best practices: 
-# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
-# in particular regarding the standardized folder structure mentioned there. 
+import os
+
+configfile: "../config/default_config.yaml"
+
+output_dir = f"{config['output_dir']}"
+
+
+rule all:
+    input:
+        f"{output_dir}/all_downloaded"
+
+rule annotate:
+    output:
+        metadata=f"{output_dir}/metadata.tsv",
+    log:
+        f"{output_dir}/logs/annotate.log",
+    threads: 1,
+    resources:
+        mem_mb=9000,
+        time_min=10,
+    params:
+        project = config['BioProject']
+    shell:
+        "kingfisher annotate -p {params.project} --all-columns -f tsv -o {output.metadata} &> {log}"
+
+checkpoint separate_samples:
+    input:
+        metadata = rules.annotate.output.metadata,
+    output:
+        samples = directory(f"{output_dir}/tmp/samples"),
+    log:
+        f"{output_dir}/logs/separate_samples.log",
+    threads: 1,
+    resources:
+        mem_mb=3000,
+        time_min=30,
+    conda:
+        "envs/pandas.yaml",
+    script:
+        "scripts/separate_samples.py"
+    
+rule download_parallel:
+    input:
+        sample = f"{output_dir}/tmp/samples/{{sample}}.txt",
+    output:
+        fastq_flag=f"{output_dir}/tmp/downloaded/{{sample}}.done",
+    log:
+        f"{output_dir}/logs/download/{{sample}}.log",
+    threads: config['threads'],
+    resources:
+        mem_mb=config['mem_mb'],
+        time_min=config['time_min'],
+    script:
+        "scripts/download.py"
+
+def get_all_samples(wildcards):
+    batch_dir = checkpoints.separate_samples.get(**wildcards).output[0]
+    all_samples = glob_wildcards(os.path.join(batch_dir, "{sample}.txt")).sample
+    return expand(f"{output_dir}/tmp/downloaded/{{sample}}.done", sample=all_samples)
+
+rule download_all:
+    input:
+        get_all_samples
+    output:
+        touch(f"{output_dir}/all_downloaded")

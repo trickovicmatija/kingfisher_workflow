@@ -1,0 +1,15 @@
+BioProject: PRJEB4336
+output_dir: /home/users/t/trickovi/scratch/kingfisher_workflow/run
+
+
+filter_samples: True
+# If filter_samples True:
+allowed_values: ['other','random']
+
+
+### RESOURCES ###
+
+tmp_dir: /scratch
+threads: 4
+time_min: 30
+mem_mb: 4000
