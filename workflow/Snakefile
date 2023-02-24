@@ -1,65 +1,142 @@
 import os
 
-configfile: "../config/default_config.yaml"
+from pathlib import Path
 
-output_dir = f"{config['output_dir']}"
+
+# absolute path to snakemake dir
+snakemake_dir = Path(workflow.snakefile).parent.resolve()
+
+# include default config values
+configfile: f"{snakemake_dir}/../config/default_config.yaml"
+
+import sys
+sys.path.append(str(snakemake_dir/"scripts"))
+import utils
+
+
 
 
 rule all:
     input:
-        f"{output_dir}/all_downloaded"
+        "Reads/all_downloaded"
 
-rule annotate:
+localrules: get_metadata
+rule get_metadata:
     output:
-        metadata=f"{output_dir}/metadata.tsv",
+        metadata="Reads/unfiltered_metadata.tsv",
     log:
-        f"{output_dir}/logs/annotate.log",
+        "Reads/logs/annotate.log",
     threads: 1,
     resources:
         mem_mb=9000,
         time_min=10,
+    conda:
+        "kingfisher"
     params:
         project = config['BioProject']
     shell:
         "kingfisher annotate -p {params.project} --all-columns -f tsv -o {output.metadata} &> {log}"
 
+localrules: filter_metadata,separate_samples
+rule filter_metadata:
+    input:
+        rules.get_metadata.output
+    output:
+        "Reads/metadata.tsv"
+
+    log:
+        "log/download_reads/filter_metadata.log"
+    script:
+        "scripts/filter_metadata.py"
+
+
 checkpoint separate_samples:
     input:
-        metadata = rules.annotate.output.metadata,
+        rules.filter_metadata.output[0],
     output:
-        samples = directory(f"{output_dir}/tmp/samples"),
+        temp(directory("Reads/tmp/run_lists")),
     log:
-        f"{output_dir}/logs/separate_samples.log",
+        "log/download_reads/separate_samples.log",
     threads: 1,
-    resources:
-        mem_mb=3000,
-        time_min=30,
-    conda:
-        "envs/pandas.yaml",
     script:
         "scripts/separate_samples.py"
     
-rule download_parallel:
+rule download:
     input:
-        sample = f"{output_dir}/tmp/samples/{{sample}}.txt",
+        run_list = "Reads/tmp/run_lists/{sample}.txt",
     output:
-        fastq_flag=f"{output_dir}/tmp/downloaded/{{sample}}.done",
+        dir = temp(directory("Reads/tmp/runs/{sample}")),
+        flag = touch("Reads/tmp/flags/{sample}.downloaded")
+    params:
+        input_abs= lambda wc, input: Path(input[0]).resolve()
     log:
-        f"{output_dir}/logs/download/{{sample}}.log",
+        Path("log/download_reads/download/{sample}.log").resolve(),
     threads: config['threads'],
     resources:
         mem_mb=config['mem_mb'],
         time_min=config['time_min'],
-    script:
-        "scripts/download.py"
+        ncbi_connection=1
+    conda:
+        "kingfisher" # "envs/kingfisher.yaml"
+    shell:
+        " mkdir {output.dir}; "
+        " cd {output.dir} ; "
+        "kingfisher get --run-identifiers-list {params.input_abs} --download-threads {threads} --hide-download-progress --force --check-md5sums -m ena-ftp -f fastq.gz &> {log}"
 
-def get_all_samples(wildcards):
-    batch_dir = checkpoints.separate_samples.get(**wildcards).output[0]
-    all_samples = glob_wildcards(os.path.join(batch_dir, "{sample}.txt")).sample
-    return expand(f"{output_dir}/tmp/downloaded/{{sample}}.done", sample=all_samples)
+
+
+
+
+
+rule merge_runs_to_sample:
+    input:
+        dir = rules.download.output.dir,
+        flag = rules.download.output.flag
+    output:
+        touch("Reads/tmp/flags/{sample}.merged")
+    params:
+        reads_dir="Reads/fastq/"
+    threads: 1
+    run:
+
+        from utils import io
+
+        fastq_folder= Path(input.dir)
+        output_folder= Path(params.reads_dir)
+
+        output_folder.mkdir(parents=True,exist_ok=True)
+
+        R1_files = list(fastq_folder.glob("*_1.fastq.gz") )
+        
+        if not len(R1_files)==0:
+            R2_files= list(fastq_folder.glob("*_2.fastq.gz") )
+
+
+            assert len(R1_files) == len(R2_files), "Should have same number of R1 and R2 files"
+
+
+            io.cat_files(R1_files, output_folder/f"{wildcards.sample}_R1.fastq.gz")
+            io.cat_files(R2_files, f"{wildcards.sample}_R2.fastq.gz")
+
+        else:
+            se_files = list(fastq_folder.glob("*.fastq.gz") )
+
+            assert len(se_files)>0, "expect single ended files"
+
+            io.cat_files(se_files, f"{wildcards.sample}.fastq.gz")
+
+
+
+
+def get_all_fags(wildcards):
+    run_list_dir = Path(checkpoints.separate_samples.get(**wildcards).output[0])
+    all_samples = glob_wildcards(str(run_list_dir/ "{sample}.txt")).sample
+    return expand("Reads/tmp/flags/{sample}.merged", sample=all_samples)
 
 rule download_all:
     input:
-        get_all_samples
+        get_all_fags
     output:
-        touch(f"{output_dir}/all_downloaded")
+        touch("Reads/all_downloaded")
+    shell:
+        "rm -r Reads/tmp/"

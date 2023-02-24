@@ -11,9 +11,25 @@ A Snakemake workflow for downloading whole projects together with their metadata
 
 The usage of this workflow is described in the [Snakemake Workflow Catalog](https://snakemake.github.io/snakemake-workflow-catalog/?usage=<owner>%2F<repo>).
 
-Since [kingfisher-download](https://github.com/wwood/kingfisher-download) is not available on conda, you need to install and configure it before running this workflow. Moreover, you need to install [snakemake](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html).
+you need to install [snakemake](https://snakemake.readthedocs.io/en/stable/getting_started/installation.html).
 
 If you use this workflow in a paper, don't forget to give credits to the authors by citing the URL of this (original) <repo>sitory and its DOI (see above).
+
+
+Run as
+```
+
+snakemake -d output_dir -j1 separate_samples --config BioProject=PRJNA363003 --use-conda --resources ncbi_connection=4 
+
+```
+
+Run as
+```
+
+snakemake -d output_dir -j10 --config BioProject=PRJNA363003 --use-conda --resources ncbi_connections=4
+
+```
+
 
 # TODO
 
