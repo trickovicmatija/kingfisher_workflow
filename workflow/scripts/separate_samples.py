@@ -33,42 +33,101 @@ sys.excepthook = handle_exception
 
 ### SCRIPT START ###
 
-# Read in the sample sheet
-run_accessions = ("SRR","ERR","DRR")
-biosample_accesions = ("SAMEA","SAMN","SAMD","SAMG","SAMR","SAMS","SAMT","SAMX")
-
-os.makedirs(snakemake.output.samples, exist_ok=True)
-
-sample_sheet = pd.read_csv(snakemake.input.metadata, sep="\t")
-
-sample_column = ""
-run_column = ""
-
-if snakemake.config['filter_samples']:
-    allowed_values = tuple(snakemake.config['allowed_values'])
-    removed_runs = sample_sheet[~sample_sheet['library_selection'].str.contains("|".join(allowed_values),case=False)].iloc[:,0].values
-    if len(removed_runs) > 0:
-        sample_sheet = sample_sheet[sample_sheet['library_selection'].str.contains("|".join(allowed_values),case=False)]
-        logging.warning(f"Removed {len(removed_runs)} runs from the sample sheet.")
-        logging.warning(f"Removed runs: {removed_runs}")
-    else:
-        logging.info("No runs removed from the sample sheet.")
+from pathlib import Path
+from utils import parse_sra
 
 
-for column in sample_sheet.columns:
+runinfo_file = snakemake.input[0]
+output_folder = Path(snakemake.output[0])
 
-    potential_biosample = sample_sheet[column].astype('str').str.startswith(biosample_accesions)
-    potential_run = sample_sheet[column].astype('str').str.startswith(run_accessions)
+# The script assumes that all are either paired end or single end
+# TODO better handle paired /single end samples.
+# e.g. drop singletons if other library is paired
 
-    if potential_biosample.sum() == potential_biosample.shape[0]:
-        sample_column = column
+RunTable = parse_sra.validate_merging_runinfo(runinfo_file)
 
-    if potential_run.sum() == potential_run.shape[0]:
-        run_column = column
+
+# All biosamples
+Samples = RunTable.sample_accession.unique()
+
+
+
+# check if all are paired end
+
+
+
+if 'read2_length_average' not in RunTable.columns:
+    paired=False
+else:
+
+    samples_with_missing_r2 = RunTable.index[RunTable.read2_length_average.isnull()]
+    if len(samples_with_missing_r2) == RunTable.shape[0]:
+        paired = False
+    elif len(samples_with_missing_r2)==0:
+        paired = True
+    else: 
+
+        logger.error(
+            f"Your library layout is not consistent, please check your runtable {runinfo_file}"
+        )
+        exit(1)
+
+
+
+
+output_folder.mkdir()
+
+
+for sample in RunTable["sample_accession"].unique():
+    df = RunTable.query("sample_accession == @sample")
     
-    if sample_column and run_column:
-        break
+    
+    with open(output_folder / (sample+".txt") ,"w") as outf:
+        outf.write("\n".join( df.index ) +'\n')
+    
 
-for sample in sample_sheet[sample_column].unique():
-    df = sample_sheet[sample_sheet[sample_column] == sample]
-    df[[run_column]].to_csv(f"{snakemake.output.samples}/{sample}.txt", sep="\t", index=False,header=False)
+
+
+"""
+
+
+# check if sample.tsv already exist
+
+sample_table_file = working_dir / "samples.tsv"
+# delete samples.tsv if it exists and overwrite is set
+if sample_table_file.exists():
+        #sample_table_file.unlink()
+
+    logger.error(
+        f"{sample_table_file} already exists, I dare not to overwrite it. "
+    )
+    exit(1)
+
+# create sample table
+
+sample_table = pd.DataFrame(index=Samples)
+
+SRA_READ_PATH = SRA_subfolder.relative_to(working_dir) / "Samples"
+
+if not paired:
+    sample_table["R1"] = sample_table.index.map(
+        lambda s: str(SRA_READ_PATH / f"{s}/{s}.fastq.gz")
+    )
+else:
+
+    sample_table["R1"] = sample_table.index.map(
+        lambda s: str(SRA_READ_PATH / f"{s}/{s}_1.fastq.gz")
+    )
+    sample_table["R2"] = sample_table.index.map(
+        lambda s: str(SRA_READ_PATH / f"{s}/{s}_2.fastq.gz")
+    )
+
+prepare_sample_table_for_atlas(
+    sample_table, reads_are_QC=skip_qc, outfile=str(sample_table_file)
+)
+
+logger.info(f"Prepared sample table with {sample_table.shape[0]} samples")
+
+
+
+"""
