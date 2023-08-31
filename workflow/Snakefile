@@ -81,7 +81,7 @@ rule download:
     shell:
         " mkdir {output.dir}; "
         " cd {output.dir} ; "
-        "kingfisher get --run-identifiers-list {params.input_abs} --download-threads {threads} --hide-download-progress --force --check-md5sums -m ena-ftp -f fastq.gz &> {log}"
+        "kingfisher get --run-identifiers-list {params.input_abs} --download-threads {threads} --hide-download-progress --force --check-md5sums -m ena-ftp prefetch -f fastq.gz &> {log}"
 
 
 
@@ -116,14 +116,14 @@ rule merge_runs_to_sample:
 
 
             io.cat_files(R1_files, output_folder/f"{wildcards.sample}_R1.fastq.gz")
-            io.cat_files(R2_files, f"{wildcards.sample}_R2.fastq.gz")
+            io.cat_files(R2_files, output_folder/f"{wildcards.sample}_R2.fastq.gz")
 
         else:
             se_files = list(fastq_folder.glob("*.fastq.gz") )
 
             assert len(se_files)>0, "expect single ended files"
 
-            io.cat_files(se_files, f"{wildcards.sample}.fastq.gz")
+            io.cat_files(se_files, output_folder/f"{wildcards.sample}.fastq.gz")
 
 
 
